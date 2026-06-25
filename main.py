@@ -9,7 +9,7 @@ from typing import List
 @register(
     name="astrbot_plugin_image_nsfw_guard",
     desc="图片色情检测自动撤回（支持指定 Vision 模型）",
-    version="1.0.4",
+    version="1.0.5",
     author="Grok 助手"
 )
 class ImageNSFWGuard(Star):
@@ -27,7 +27,29 @@ class ImageNSFWGuard(Star):
         if not self.enabled:
             return
 
-        images: List[Comp.Image] = event.get_images()
+        # 兼容方式获取图片（修复 get_images() 不存在的问题）
+        images = []
+        try:
+            # 方式1：尝试新版方法
+            if hasattr(event, "get_images"):
+                images = event.get_images()
+            else:
+                # 方式2：手动从消息链中提取图片（兼容 Aiocqhttp）
+                msg_chain = event.get_message_chain() if hasattr(event, "get_message_chain") else getattr(event, "message", [])
+                for comp in msg_chain:
+                    if isinstance(comp, Comp.Image) or (hasattr(comp, "type") and comp.type == "image"):
+                        images.append(comp)
+        except:
+            # 方式3：直接从 message_obj 中尝试
+            try:
+                msg_obj = getattr(event, "message_obj", None) or event
+                if hasattr(msg_obj, "message") and isinstance(msg_obj.message, list):
+                    for seg in msg_obj.message:
+                        if isinstance(seg, dict) and seg.get("type") == "image":
+                            images.append(seg)
+            except:
+                pass
+
         if not images:
             return
 
@@ -35,7 +57,7 @@ class ImageNSFWGuard(Star):
         if group_id and group_id in [str(g) for g in self.whitelist_groups]:
             return
 
-        logger.info(f"🔍 检测到图片，使用模型 {self.selected_provider or '默认'} 进行 NSFW 审核...")
+        logger.info(f"🔍 检测到 {len(images)} 张图片，使用模型 {self.selected_provider or '默认'} 进行 NSFW 审核...")
 
         try:
             prompt = (
@@ -44,11 +66,21 @@ class ImageNSFWGuard(Star):
                 "{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
             )
 
-            # 使用用户指定的模型
+            # 提取图片 URL 或 file 用于 Vision 模型
+            image_inputs = []
+            for img in images:
+                if hasattr(img, "url") and img.url:
+                    image_inputs.append(img.url)
+                elif hasattr(img, "file") and img.file:
+                    image_inputs.append(img.file)
+
+            if not image_inputs:
+                return
+
             llm_tool = self.context.get_llm_tool()
             result = await llm_tool.chat(
                 prompt=prompt,
-                images=[img.url or img.file for img in images if img.url or img.file],
+                images=image_inputs,
                 session_id=event.session_id,
                 provider_id=self.selected_provider if self.selected_provider else None
             )
