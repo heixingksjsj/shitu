@@ -7,8 +7,8 @@ import json
 @register(
     name="astrbot_plugin_image_nsfw_guard",
     desc="QQ群图片色情检测自动撤回",
-    version="1.1.1",
-    author="Grok 助手 (参考 zhyx111999)"
+    version="1.1.2",
+    author="Grok 助手"
 )
 class ImageNSFWGuard(Star):
     def __init__(self, context: Context, config=None):
@@ -25,8 +25,7 @@ class ImageNSFWGuard(Star):
         if not self.enabled:
             return
 
-        # 使用对方仓库的成熟提取方式
-        image_urls = await self._get_image_urls(event)
+        image_urls = self._get_image_urls(event)
         if not image_urls:
             logger.info("❌ 未检测到有效图片")
             return
@@ -68,34 +67,37 @@ class ImageNSFWGuard(Star):
                 await event.recall()
                 if self.notify_user:
                     await event.send("⚠️ 你发送的图片包含不适宜内容，已自动撤回。请注意群规。", at_sender=True)
-                await event.send_to_admin(f"🚨 NSFW 撤回：{event.get_sender_name() or '未知用户'}")
         except Exception as e:
             logger.error(f"审核出错: {e}")
 
-    # ==================== 关键：从对方仓库借鉴的图片提取 ====================
-    async def _get_image_urls(self, event: AstrMessageEvent):
+    # ==================== 借鉴对方仓库的提取逻辑 ====================
+    def _get_image_urls(self, event: AstrMessageEvent):
         urls = []
         try:
-            # 1. 原始消息结构（QQ最有效）
-            message_obj = getattr(event, "message_obj", event)
-            raw_msg = getattr(message_obj, "message", None) or getattr(event, "message", None)
+            # 1. 原始消息结构 (最有效)
+            original_event = getattr(event, "original_event", None)
+            if original_event and hasattr(original_event, "message"):
+                raw_msg = original_event.message
+            else:
+                message_obj = getattr(event, "message_obj", event)
+                raw_msg = getattr(message_obj, "message", None) or getattr(event, "message", None)
 
             if isinstance(raw_msg, list):
                 for seg in raw_msg:
                     if isinstance(seg, dict) and seg.get("type") == "image":
-                        data = seg.get("data", {})
-                        url = data.get("url") or data.get("file")
+                        data = seg.get("data", {}) or seg
+                        url = data.get("url") or data.get("file") or data.get("path")
                         if url and url not in urls:
                             urls.append(url)
+                            logger.info(f"✅ 找到图片 URL: {url[:100]}...")
 
             # 2. 组件方式
             if not urls and hasattr(event, "get_message_chain"):
                 for comp in event.get_message_chain():
-                    if hasattr(comp, "url") and comp.url:
-                        urls.append(comp.url)
-                    elif hasattr(comp, "file") and comp.file:
-                        urls.append(comp.file)
+                    url = getattr(comp, "url", None) or getattr(comp, "file", None)
+                    if url and url not in urls:
+                        urls.append(url)
         except Exception as e:
-            logger.error(f"提取图片URL失败: {e}")
+            logger.error(f"提取图片失败: {e}")
 
         return urls
