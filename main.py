@@ -7,7 +7,7 @@ import json
 @register(
     name="astrbot_plugin_image_nsfw_guard",
     desc="QQ群图片色情检测自动撤回",
-    version="1.1.3",
+    version="1.1.4",
     author="Grok 助手 (参考 zhyx111999)"
 )
 class ImageNSFWGuard(Star):
@@ -32,7 +32,6 @@ class ImageNSFWGuard(Star):
 
         logger.info(f"✅ 检测到 {len(image_urls)} 张图片，开始 NSFW 审核...")
 
-        # 白名单过滤
         group_id = str(getattr(getattr(event, "message_obj", None), "group_id", None) or "")
         if group_id and group_id in [str(g) for g in self.whitelist_groups]:
             logger.info("白名单群，跳过")
@@ -40,7 +39,7 @@ class ImageNSFWGuard(Star):
 
         try:
             prompt = (
-                "内容审核任务：仔细分析图片是否包含色情、裸露、性暗示等NSFW内容。\n"
+                "内容审核任务：分析这张图片是否包含色情、裸露、性暗示等NSFW内容。\n"
                 "只返回JSON：{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
             )
 
@@ -71,13 +70,17 @@ class ImageNSFWGuard(Star):
         except Exception as e:
             logger.error(f"审核出错: {e}")
 
-    # 借鉴对方仓库的核心提取逻辑（最关键部分）
+    # ==================== 直接抄对方仓库的核心提取逻辑 ====================
     def _get_image_urls(self, event: AstrMessageEvent):
         urls = []
         try:
-            # QQ 原始消息结构
-            message_obj = getattr(event, "message_obj", event)
-            raw_msg = getattr(message_obj, "message", None) or getattr(event, "message", None)
+            # 原始消息结构（最重要）
+            original_event = getattr(event, "original_event", None)
+            if original_event and hasattr(original_event, "message"):
+                raw_msg = original_event.message
+            else:
+                message_obj = getattr(event, "message_obj", event)
+                raw_msg = getattr(message_obj, "message", None) or getattr(event, "message", None)
 
             if isinstance(raw_msg, list):
                 for seg in raw_msg:
@@ -86,9 +89,9 @@ class ImageNSFWGuard(Star):
                         url = data.get("url") or data.get("file") or data.get("path")
                         if url and url not in urls:
                             urls.append(url)
-                            logger.info(f"✅ 找到图片: {url[:100]}...")
+                            logger.info(f"✅ 找到图片 URL: {url[:100]}...")
 
-            # 组件方式补充
+            # 补充组件方式
             if not urls and hasattr(event, "get_message_chain"):
                 for comp in event.get_message_chain():
                     url = getattr(comp, "url", None) or getattr(comp, "file", None)
