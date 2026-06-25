@@ -1,0 +1,6 @@
+name: astrbot_plugin_image_nsfw_guard
+display_name: 图片色情自动撤回
+short_desc: 使用已配置 Vision 模型检测并撤回 NSFW 图片
+author: Grok 助手
+version: 1.0.0
+repo: https://github.com/你的用户名/astrbot_plugin_image_nsfw_guard
