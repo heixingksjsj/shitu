@@ -1,6 +1,6 @@
 {
   "enabled": {
-    "type": "boolean",
+    "type": "bool",
     "default": true,
     "description": "是否启用插件"
   },
@@ -10,12 +10,12 @@
     "description": "NSFW 置信度阈值 (0.0-1.0，越高越严格)"
   },
   "notify_user": {
-    "type": "boolean",
+    "type": "bool",
     "default": true,
     "description": "是否提醒发送者"
   },
   "whitelist_groups": {
-    "type": "array",
+    "type": "list",
     "default": [],
     "description": "白名单群号列表（字符串数组）",
     "items": {
