@@ -4,6 +4,12 @@
     "default": true,
     "description": "是否启用插件"
   },
+  "selected_provider": {
+    "type": "string",
+    "_special": "select_provider",
+    "default": "",
+    "description": "选择用于图片色情检测的 Vision 模型（必须支持看图）"
+  },
   "threshold": {
     "type": "float",
     "default": 0.7,
