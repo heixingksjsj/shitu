@@ -2,5 +2,5 @@ name: astrbot_plugin_image_nsfw_guard
 display_name: 图片色情自动撤回
 short_desc: 使用Vision模型检测并自动撤回NSFW图片
 author: Grok 助手
-version: 1.0.3
-desc: 监听图片消息，使用已配置的Vision模型检测色情内容并自动撤回
+version: 1.2.0
+desc: QQ群图片色情检测自动撤回插件
