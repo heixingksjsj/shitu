@@ -3,12 +3,11 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import json
-import astrbot.api.message_components as Comp
 
 @register(
     name="astrbot_plugin_image_nsfw_guard",
     desc="QQ群图片色情检测自动撤回",
-    version="1.0.9",
+    version="1.1.0",
     author="Grok 助手"
 )
 class ImageNSFWGuard(Star):
@@ -26,38 +25,41 @@ class ImageNSFWGuard(Star):
         logger.info("🔧 QQ插件触发 - 收到消息")
 
         if not self.enabled:
-            logger.info("插件未启用")
             return
 
-        # QQ专用强力图片提取
+        # QQ 专用极端提取方式
         images = []
+        raw_message = None
+
         try:
-            # 方法1：标准消息链
+            # 1. 尝试标准方式
             if hasattr(event, "get_message_chain"):
                 chain = event.get_message_chain()
-                logger.info(f"消息链长度: {len(chain)}")
                 for item in chain:
-                    if isinstance(item, Comp.Image):
+                    if "image" in str(type(item)).lower() or getattr(item, "type", "") == "image":
                         images.append(item)
-                        logger.info(f"✅ 找到 Comp.Image: {getattr(item, 'url', '')[:100]}")
-            
-            # 方法2：直接从 message_obj.message (QQ最常见)
+
+            # 2. 直接访问 message_obj.message （QQ 最原始结构）
             if not images:
                 msg_obj = getattr(event, "message_obj", event)
-                message = getattr(msg_obj, "message", None) or getattr(event, "message", None)
-                if isinstance(message, list):
-                    for seg in message:
+                raw_message = getattr(msg_obj, "message", None) or getattr(event, "message", None)
+                
+                if isinstance(raw_message, list):
+                    for seg in raw_message:
                         if isinstance(seg, dict) and seg.get("type") == "image":
                             images.append(seg)
-                            logger.info(f"✅ 找到 dict image: {seg.get('data', {})}")
+                            logger.info(f"✅ 找到 dict 类型图片: {seg.get('data', {})}")
                         elif hasattr(seg, "type") and seg.type == "image":
                             images.append(seg)
-                            logger.info("✅ 找到 Image 对象")
+                            logger.info("✅ 找到对象类型图片")
         except Exception as e:
             logger.error(f"提取图片异常: {e}")
 
         if not images:
             logger.info("❌ 本条消息未检测到图片")
+            # 打印原始消息结构帮助调试
+            if raw_message:
+                logger.info(f"原始 message 结构: {str(raw_message)[:500]}...")
             return
 
         logger.info(f"✅ 成功检测到 {len(images)} 张图片！开始 NSFW 审核...")
@@ -80,12 +82,12 @@ class ImageNSFWGuard(Star):
                     image_inputs.append(url)
 
             if not image_inputs:
-                logger.warning("无法提取图片URL")
+                logger.warning("无法获取图片URL")
                 return
 
             prompt = (
-                "内容审核：分析图片是否包含色情、裸露、性暗示等NSFW内容。\n"
-                "只返回JSON：{\"is_nsfw\":true/false, \"confidence\":0.85, \"reason\":\"简短理由\"}"
+                "内容审核任务：分析这张图片是否包含色情、裸露、性暗示等NSFW内容。\n"
+                "严格只返回JSON：{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
             )
 
             llm_tool = self.context.get_llm_tool()
@@ -102,9 +104,9 @@ class ImageNSFWGuard(Star):
             try:
                 data = json.loads(result_text)
                 is_nsfw = data.get("is_nsfw", False)
-                confidence = float(data.get("confidence", 0))
+                confidence = float(data.get("confidence", 0.0))
             except:
-                is_nsfw = any(k in result_text.lower() for k in ["色情","nsfw","裸","porn"])
+                is_nsfw = any(k in result_text.lower() for k in ["色情","nsfw","裸","porn","性"])
                 confidence = 0.75
 
             if is_nsfw and confidence >= self.threshold:
@@ -113,4 +115,4 @@ class ImageNSFWGuard(Star):
                 if self.notify_user:
                     await event.send("⚠️ 你发送的图片包含不适宜内容，已自动撤回。请注意群规。", at_sender=True)
         except Exception as e:
-            logger.error(f"审核失败: {e}")
+            logger.error(f"审核过程出错: {e}")
