@@ -7,8 +7,8 @@ import json
 @register(
     name="astrbot_plugin_image_nsfw_guard",
     desc="QQ群图片色情检测自动撤回",
-    version="1.1.0",
-    author="Grok 助手"
+    version="1.1.1",
+    author="Grok 助手 (参考 zhyx111999)"
 )
 class ImageNSFWGuard(Star):
     def __init__(self, context: Context, config=None):
@@ -22,78 +22,32 @@ class ImageNSFWGuard(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_image_message(self, event: AstrMessageEvent):
-        logger.info("🔧 QQ插件触发 - 收到消息")
-
         if not self.enabled:
             return
 
-        # QQ 专用极端提取方式
-        images = []
-        raw_message = None
-
-        try:
-            # 1. 尝试标准方式
-            if hasattr(event, "get_message_chain"):
-                chain = event.get_message_chain()
-                for item in chain:
-                    if "image" in str(type(item)).lower() or getattr(item, "type", "") == "image":
-                        images.append(item)
-
-            # 2. 直接访问 message_obj.message （QQ 最原始结构）
-            if not images:
-                msg_obj = getattr(event, "message_obj", event)
-                raw_message = getattr(msg_obj, "message", None) or getattr(event, "message", None)
-                
-                if isinstance(raw_message, list):
-                    for seg in raw_message:
-                        if isinstance(seg, dict) and seg.get("type") == "image":
-                            images.append(seg)
-                            logger.info(f"✅ 找到 dict 类型图片: {seg.get('data', {})}")
-                        elif hasattr(seg, "type") and seg.type == "image":
-                            images.append(seg)
-                            logger.info("✅ 找到对象类型图片")
-        except Exception as e:
-            logger.error(f"提取图片异常: {e}")
-
-        if not images:
-            logger.info("❌ 本条消息未检测到图片")
-            # 打印原始消息结构帮助调试
-            if raw_message:
-                logger.info(f"原始 message 结构: {str(raw_message)[:500]}...")
+        # 使用对方仓库的成熟提取方式
+        image_urls = await self._get_image_urls(event)
+        if not image_urls:
+            logger.info("❌ 未检测到有效图片")
             return
 
-        logger.info(f"✅ 成功检测到 {len(images)} 张图片！开始 NSFW 审核...")
+        logger.info(f"✅ 检测到 {len(image_urls)} 张图片，开始 NSFW 审核...")
 
-        # 白名单
         group_id = str(getattr(getattr(event, "message_obj", None), "group_id", None) or "")
         if group_id and group_id in [str(g) for g in self.whitelist_groups]:
             logger.info("白名单群，跳过")
             return
 
         try:
-            image_inputs = []
-            for img in images:
-                if isinstance(img, dict):
-                    data = img.get("data", {})
-                    url = data.get("url") or data.get("file")
-                else:
-                    url = getattr(img, "url", None) or getattr(img, "file", None)
-                if url:
-                    image_inputs.append(url)
-
-            if not image_inputs:
-                logger.warning("无法获取图片URL")
-                return
-
             prompt = (
                 "内容审核任务：分析这张图片是否包含色情、裸露、性暗示等NSFW内容。\n"
-                "严格只返回JSON：{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
+                "只返回JSON：{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
             )
 
             llm_tool = self.context.get_llm_tool()
             result = await llm_tool.chat(
                 prompt=prompt,
-                images=image_inputs,
+                images=image_urls,
                 session_id=event.session_id,
                 provider_id=self.selected_provider if self.selected_provider else None
             )
@@ -106,13 +60,42 @@ class ImageNSFWGuard(Star):
                 is_nsfw = data.get("is_nsfw", False)
                 confidence = float(data.get("confidence", 0.0))
             except:
-                is_nsfw = any(k in result_text.lower() for k in ["色情","nsfw","裸","porn","性"])
+                is_nsfw = any(k in result_text.lower() for k in ["色情", "nsfw", "裸", "porn", "性"])
                 confidence = 0.75
 
             if is_nsfw and confidence >= self.threshold:
-                logger.warning("🚨 检测到NSFW，执行撤回！")
+                logger.warning("🚨 检测到 NSFW，执行撤回！")
                 await event.recall()
                 if self.notify_user:
                     await event.send("⚠️ 你发送的图片包含不适宜内容，已自动撤回。请注意群规。", at_sender=True)
+                await event.send_to_admin(f"🚨 NSFW 撤回：{event.get_sender_name() or '未知用户'}")
         except Exception as e:
-            logger.error(f"审核过程出错: {e}")
+            logger.error(f"审核出错: {e}")
+
+    # ==================== 关键：从对方仓库借鉴的图片提取 ====================
+    async def _get_image_urls(self, event: AstrMessageEvent):
+        urls = []
+        try:
+            # 1. 原始消息结构（QQ最有效）
+            message_obj = getattr(event, "message_obj", event)
+            raw_msg = getattr(message_obj, "message", None) or getattr(event, "message", None)
+
+            if isinstance(raw_msg, list):
+                for seg in raw_msg:
+                    if isinstance(seg, dict) and seg.get("type") == "image":
+                        data = seg.get("data", {})
+                        url = data.get("url") or data.get("file")
+                        if url and url not in urls:
+                            urls.append(url)
+
+            # 2. 组件方式
+            if not urls and hasattr(event, "get_message_chain"):
+                for comp in event.get_message_chain():
+                    if hasattr(comp, "url") and comp.url:
+                        urls.append(comp.url)
+                    elif hasattr(comp, "file") and comp.file:
+                        urls.append(comp.file)
+        except Exception as e:
+            logger.error(f"提取图片URL失败: {e}")
+
+        return urls
