@@ -110,4 +110,4 @@ class ImageNSFWGuard(Star):
                 if self.notify_user:
                     await event.send("⚠️ 你发送的图片包含不适宜内容，已自动撤回。请注意群规。", at_sender=True)
         except Exception as e:
-            logger.error(f"审核过程出错: {e}")
+            logger.error(f"审核过程出错: {e}") 
