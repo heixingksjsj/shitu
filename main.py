@@ -1,4 +1,3 @@
-
 # main.py
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -14,9 +13,10 @@ from typing import List
     author="Grok 助手"
 )
 class ImageNSFWGuard(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config=None):
         super().__init__(context)
-        self.config = context.get_config() or {}
+        # 新版配置加载方式
+        self.config = config or context.get_config() or {}
         self.enabled = self.config.get("enabled", True)
         self.threshold = self.config.get("threshold", 0.7)
         self.notify_user = self.config.get("notify_user", True)
@@ -31,7 +31,6 @@ class ImageNSFWGuard(Star):
         if not images:
             return
 
-        # 白名单过滤
         group_id = str(event.message_obj.group_id) if hasattr(event.message_obj, "group_id") and event.message_obj.group_id else None
         if group_id and group_id in [str(g) for g in self.whitelist_groups]:
             return
@@ -40,9 +39,8 @@ class ImageNSFWGuard(Star):
 
         try:
             prompt = (
-                "内容审核任务：分析图片是否包含色情、裸露、性暗示等 NSFW 内容。\n"
-                "只返回以下 JSON，不要任何其他文字：\n"
-                "{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
+                "内容审核任务：分析图片是否包含色情、裸露、性暗示等NSFW内容。\n"
+                "严格只返回JSON：{\"is_nsfw\": true/false, \"confidence\": 0.85, \"reason\": \"简短理由\"}"
             )
 
             result = await self.context.get_llm_tool().chat(
@@ -63,20 +61,12 @@ class ImageNSFWGuard(Star):
                 confidence = 0.75
 
             if is_nsfw and confidence >= self.threshold:
-                logger.warning(f"🚨 检测到 NSFW 内容 (置信度 {confidence:.2f})，撤回图片")
+                logger.warning(f"🚨 检测到 NSFW 内容 (置信度 {confidence:.2f})，撤回")
                 await event.recall()
 
                 if self.notify_user:
                     await event.send("⚠️ 你发送的图片包含不适宜内容，已自动撤回。请注意群规。", at_sender=True)
 
-                await event.send_to_admin(f"🚨 NSFW 撤回：用户 {event.get_sender_name()} 发送了违规图片")
+                await event.send_to_admin(f"🚨 NSFW撤回：{event.get_sender_name()} 发送违规图片")
         except Exception as e:
             logger.error(f"NSFW 审核出错: {e}")
-
-    def get_config(self):
-        return {
-            "enabled": {"type": "boolean", "default": True, "desc": "启用插件"},
-            "threshold": {"type": "number", "default": 0.7, "desc": "置信度阈值 (0.0-1.0，越高越严格)"},
-            "notify_user": {"type": "boolean", "default": True, "desc": "是否提醒发送者"},
-            "whitelist_groups": {"type": "list", "default": [], "desc": "白名单群号列表（字符串）"}
-                }
